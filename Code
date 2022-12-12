@@ -1,0 +1,217 @@
+rm(list=ls(all=TRUE))
+
+#loading libraries
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(xgboost)
+library(Matrix)
+library(caret)
+library(gains)
+library(forecast)
+library(hardhat)
+library(varImp)
+library(fastDummies)
+library(class)
+library(e1071)
+library(readr)
+library(rminer)
+library(ROCR)
+
+
+#loading the data
+
+air<-read.csv('airlinesatisfactiondata1.csv')
+
+sum(is.na(air))
+air<-na.omit(air)
+
+View(air)
+
+#Creating "class" as dummies and removing class and one dummy (n-1 rule)
+
+air <- dummy_cols(air, select_columns = 'class')
+air <- air[,-6]
+air<- air[,-24]
+View(air)
+air
+summary(air)
+lapply(air,class)
+
+#converting into binary
+air$gender<-ifelse(air$gender=="Male",1,0)
+colnames(air)[2] ="male"
+air$satisfaction<-ifelse(air$satisfaction=="satisfied",1,0)
+colnames(air)[1] ="satisfied"
+air$customer_type<- ifelse(air$customer_type=="Loyal Customer",1,0)
+colnames(air)[3] ="Loyal_Customer"
+air$travel_type<- ifelse(air$travel_type=="Personal Travel",1,0)
+colnames(air)[5] ="Personal_Travel"
+air$arrival_delay<- ifelse(air$arrival_delay=="Delayed",1,0)
+colnames(air)[21] ="arrival_delayed"
+
+
+#converting into factor
+air$satisfied <- as.factor(air$satisfied)
+air$male <- as.factor(air$male)
+air$Loyal_Customer<- as.factor(air$Loyal_Customer)
+air$Personal_Travel <- as.factor(air$Personal_Travel)
+
+air$class_Business <- as.factor(air$class_Business)
+air$class_Eco <- as.factor(air$class_Eco)
+air$arrival_delayed <- as.factor(air$arrival_delayed)
+
+lapply(air,class)
+
+
+#Training Set & Validation set
+
+set.seed(1)
+
+train.index <- sample(row.names(air), 0.6*dim(air)[1])
+valid.index <- setdiff(row.names(air), train.index) 
+train.df <- air[train.index,]
+valid.df <- air[valid.index,]
+train.df
+#Building a decision Tree (Decision Tree)
+
+tr <- rpart(satisfied~., data = train.df,minbucket= 100 , maxdepth = 5)
+tr
+
+prp(tr, faclen = 0)
+printcp(tr)
+
+#pruning the decision tree (The result is the same for some reason) (Decision Tree)
+pfit<- prune(tr, 
+             cp = tr$cptable[which.min(tr$cptable[,"xerror"]),"CP"])
+prp(pfit)
+
+#Finding important variables (Decision Tree)
+
+t(t(pfit$variable.importance))
+
+#predicting training & validation data (Decision Tree)
+tree.pred.train <- predict(pfit, train.df)
+tree.pred.valid <- predict(pfit, valid.df)
+tree.pred.valid
+table(tree.pred.train,train.df$satisfied)
+table(tree.pred.valid, valid.df$satisfied)
+str(tree.pred)
+View(tree.pred)
+
+#confusion matrix of the validation data (Decision Tree)
+confusionMatrix(tree.pred.valid, valid.df$satisfied, positive = "1")
+
+
+
+#Building a random forest (Random Forest) random forest
+
+rf <- randomForest(satisfied~., data = train.df)
+rf
+
+rf.pred.train <- predict(rf, train.df, type = "class")
+rf.pred.valid <- predict(rf, valid.df, type = "class")
+
+
+#Confusion matric of validation data (Random Forest)
+confusionMatrix(rf.pred.valid, valid.df$satisfied, positive = "1")
+
+#Variable importance - Highest MeanDecreaseGini means most important variable (Random Forest) 
+rf$importance
+
+
+#Normalizing Data for (Logistic Regression) & (SVM)
+norm.values <- preProcess(train.df,method='range')
+train.norm.df <- predict(norm.values,train.df)
+valid.norm.df <- predict(norm.values,valid.df)
+valid.norm.df
+
+#Running Logistic Regression on Normalized data (Logistic Regression)
+logit.norm.train<-glm(satisfied~.,data=train.norm.df,family='binomial')
+logit.norm.train
+
+#predicting validation data using normalized training data (Logistic Regression)
+logit.predict.valid <- predict(logit.norm.train,valid.norm.df, type ="response")
+
+#Confusion Matrix Validation Prediction  (Logistic Regression)
+confusionMatrix(as.factor(ifelse(logit.predict.valid > 0.5, 1, 0)), as.factor(valid.norm.df$satisfied), positive = "1")
+
+
+#Building Support Vector Machine using rminer package  (SVM)
+
+svm_model <- fit(satisfied~.,data = train.norm.df, model = "svm", task = "class")
+
+summary(svm_model)
+#Predicting Training and Validation Set (SVM)
+svm.train.predict <- predict(svm_model, train.norm.df, type ="class")
+svm.valid.predict <- predict(svm_model, valid.norm.df, type = "class")
+
+View(train.df)
+#Confusion Matrix for training & validation prediction (SVM)
+confusionMatrix(as.factor(svm.train.predict),train.norm.df$satisfied, positive = "1")
+confusionMatrix(as.factor(svm.valid.predict),valid.norm.df$satisfied, positive = "1")
+
+#Variable Importance and checking other values (SVM)
+print(mmetric(valid.norm.df$satisfied, svm.valid.predict, metric = "ALL"))
+
+importance <- Importance(svm_model, train.norm.df)
+importance
+importance$imp
+importance$value
+
+
+
+
+
+#new customer test
+
+#Creating a new customer
+#Creating a new customer 
+new_cust<-data.frame(satisfied=1,male=1,Loyal_Customer=1,age=49,
+                     Personal_Travel=1,flight_distance=5679,
+                     seat_comfort=5,departure_arrival_time_cinvenience=2,
+                     food_and_drink=2,gate_location=2,
+                     inflight_wifi_service=3,inflight_entertainment=5,
+                     online_support=5,ease_of_booking=5,
+                     onboard_service=4,leg_room_service=3,
+                     baggage_handling=2,checkin_service=2,cleanliness=2,
+                     online_boarding=2,arrival_delayed=0,class_Business=0,class_Eco=1)
+
+#changing variable types to make it comparable with training data
+lapply(new_cust,class)
+new_cust$satisfied <- as.factor(new_cust$satisfied)
+new_cust$male <- as.factor(new_cust$male)
+new_cust$Loyal_Customer<- as.factor(new_cust$Loyal_Customer)
+new_cust$Personal_Travel <- as.factor(new_cust$Personal_Travel)
+new_cust$class_Business <- as.factor(new_cust$class_Business)
+new_cust$class_Eco <- as.factor(new_cust$class_Eco)
+new_cust$arrival_delayed <- as.factor(new_cust$arrival_delayed)
+new_cust$flight_distance <- as.integer(new_cust$flight_distance)
+new_cust$online_boarding <- as.integer(new_cust$online_boarding)
+new_cust$cleanliness <- as.integer(new_cust$cleanliness)
+new_cust$checkin_service <- as.integer(new_cust$checkin_service)
+new_cust$baggage_handling <- as.integer(new_cust$baggage_handling)
+new_cust$leg_room_service <- as.integer(new_cust$leg_room_service)
+new_cust$onboard_service <- as.integer(new_cust$onboard_service)
+new_cust$ease_of_booking <- as.integer(new_cust$ease_of_booking)
+new_cust$online_support <- as.integer(new_cust$online_support)
+new_cust$inflight_entertainment <- as.integer(new_cust$inflight_entertainment)
+new_cust$gate_location <- as.integer(new_cust$gate_location)
+new_cust$food_and_drink <- as.integer(new_cust$food_and_drink)
+new_cust$inflight_wifi_service <- as.integer(new_cust$inflight_wifi_service)
+new_cust$departure_arrival_time_cinvenience <- as.integer(new_cust$departure_arrival_time_cinvenience)
+new_cust$seat_comfort <- as.integer(new_cust$seat_comfort)
+new_cust$age <- as.integer(new_cust$age)
+
+View(new_cust)
+
+t <- rbind(train.df[1,],new_cust)
+t <- t[-1,]
+t
+
+#Predicting
+
+rf.pred.test <- predict(rf, t, type = "class")
+View(rf.pred.test)
+
+
