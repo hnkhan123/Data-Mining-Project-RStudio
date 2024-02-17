@@ -1,0 +1,2 @@
+# Identifying important factors of Customer Satisfaction using Variable Importance
+This project analyzes airline satisfaction factors and builds predictive models to forecast passenger satisfaction. It involves preprocessing data, training various machine learning models (Decision Trees, Random Forests, Logistic Regression, SVM), evaluating model performance, identifying which features/variables matter the most and predicting satisfaction for new customers based on their attributes.
